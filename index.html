@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Compare four AI-generated takes of one music prompt in lockstep: instant or bar-quantized switching, loudness matching, blind test.">
+<title>Take Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one instrument panel. Shared ruler on top, four time-locked take lanes, transport and verdict below. */
+:root {
+  --bg: #f4f4f2; --panel: #ffffff; --line: #dcdad5; --fg: #1c1b19; --muted: #66625b;
+  --wave: #9a958c; --wave-active: #c2410c; --accent: #c2410c; --accent-ink: #ffffff; --discard: #b3aea5;
+  --font-ui: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141311; --panel: #1c1b18; --line: #33312c; --fg: #ecebe6; --muted: #a29e95;
+  --wave: #5c5850; --wave-active: #f59e0b; --accent: #f59e0b; --accent-ink: #1c1b18; --discard: #45423c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #141311; --panel: #1c1b18; --line: #33312c; --fg: #ecebe6; --muted: #a29e95;
+  --wave: #5c5850; --wave-active: #f59e0b; --accent: #f59e0b; --accent-ink: #1c1b18; --discard: #45423c; color-scheme: dark }
+
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font-ui); }
+::selection { background: var(--accent); color: var(--accent-ink); }
+.wrap { max-width: 960px; margin: 0 auto; padding-block: 32px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 20px; }
+h1 { font-size: 26px; font-weight: 600; margin: 0; text-wrap: balance; }
+.lede { margin: 4px 0 0; color: var(--muted); max-width: 62ch; }
+.prompt { display: grid; gap: 2px; }
+.prompt q { font-size: 18px; quotes: "\201C" "\201D"; }
+.meta { font-family: var(--font-data); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 12px; }
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+button, .seg label { font: inherit; color: inherit; }
+.play { min-width: 96px; height: 40px; border-radius: var(--r); border: 1px solid var(--fg); background: var(--fg); color: var(--bg); font-weight: 600; cursor: pointer; }
+.play[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pos { font-family: var(--font-data); font-size: 20px; font-variant-numeric: tabular-nums; min-width: 6ch; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label { padding: 6px 12px; font-size: 14px; cursor: pointer; border-left: 1px solid var(--line); }
+.seg label:first-of-type { border-left: 0; }
+.seg input:checked + label { background: var(--fg); color: var(--bg); }
+.seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -2px; }
+.field { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; }
+.field-label, .seg label { white-space: nowrap; }
+.field-label { color: var(--muted); }
+.check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 24px; height: 24px; margin: 0; }
+
+/* take lanes */
+.lanes { display: grid; gap: 0; }
+.lane, .ruler { display: grid; grid-template-columns: 11rem minmax(0, 1fr) 10.5rem; gap: 16px; align-items: center; }
+.ruler { font-family: var(--font-data); font-size: 12px; color: var(--muted); padding-bottom: 4px; }
+.ruler .bars { display: grid; grid-template-columns: repeat(4, 1fr); }
+.ruler .bars span { border-left: 1px solid var(--line); padding-left: 4px; }
+.lane { padding-block: 8px; border-top: 1px solid var(--line); }
+.pick { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 28px 1fr; gap: 2px 10px; align-items: start; cursor: pointer; border-radius: var(--r); padding: 6px; outline: 2px solid transparent; outline-offset: 0; }
+.pick:focus-visible { outline-color: var(--fg); }
+.key { grid-row: span 2; width: 28px; height: 28px; border-radius: 4px; border: 1px solid var(--line); display: grid; place-items: center; font-family: var(--font-data); font-size: 13px; }
+.name { font-weight: 600; }
+.desc { grid-column: 2; font-size: 13px; color: var(--muted); line-height: 1.35; }
+.lane.active .key { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.lane.queued .key { border-color: var(--accent); border-style: dashed; }
+.lane.discarded .name, .lane.discarded .desc { color: var(--discard); text-decoration: line-through; }
+.wavebox { position: relative; height: 64px; min-width: 0; }
+.wavebox canvas { width: 100%; height: 100%; display: block; }
+.head { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--muted); opacity: .45; transform: translateX(0); will-change: transform; pointer-events: none; }
+.lane.active .head { background: var(--accent); opacity: 1; }
+.verdict { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+.gain { font-family: var(--font-data); font-size: 12px; color: var(--muted); min-width: 7.5ch; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vbtn { height: 32px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--line); background: transparent; cursor: pointer; font-size: 13px; }
+.vbtn[aria-pressed="true"].keep { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.vbtn[aria-pressed="true"].drop { border-color: var(--discard); color: var(--muted); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.status { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; font-size: 14px; }
+.status strong { font-weight: 600; }
+.keys { color: var(--muted); font-size: 13px; }
+kbd { font-family: var(--font-data); font-size: 12px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+.note { font-size: 13px; color: var(--muted); max-width: 70ch; margin: 0; }
+
+@media (max-width: 640px) {
+  .lane { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "pick verdict" "wave wave"; }
+  .pick { grid-area: pick; } .verdict { grid-area: verdict; } .wavebox { grid-area: wave; }
+  .ruler { grid-template-columns: minmax(0, 1fr); } .ruler > :not(.bars) { display: none; }
+  .gain { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .head { will-change: auto; } }
+</style>
+
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <h1>Take Room</h1>
+    <p class="lede">Four takes from one prompt, playing in lockstep. Switch between them without losing your place in the bar, keep the ones that work, drop the rest.</p>
+  </header>
+
+  <section class="prompt" aria-label="Prompt">
+    <q>Lo-fi boom-bap loop, warm Rhodes, soft drums, round bass</q>
+    <span class="meta">92 BPM, 4/4, D minor, 4 bars. Example prompt.</span>
+  </section>
+
+  <section class="panel" aria-label="Takes">
+    <div class="transport">
+      <button class="play" id="play" aria-pressed="false">Play</button>
+      <span class="pos" id="pos" aria-live="off">1.1</span>
+      <span class="field"><span class="field-label" id="sw-label">Switch on</span>
+        <span class="seg" role="radiogroup" aria-labelledby="sw-label">
+          <input type="radio" name="sw" id="sw-now" value="now" checked><label for="sw-now">Instant</label>
+          <input type="radio" name="sw" id="sw-beat" value="beat"><label for="sw-beat">Next beat</label>
+          <input type="radio" name="sw" id="sw-bar" value="bar"><label for="sw-bar">Next bar</label>
+        </span>
+      </span>
+      <label class="check"><input type="checkbox" id="blind"> Blind test</label>
+      <label class="check"><input type="checkbox" id="match" checked> Match loudness</label>
+    </div>
+
+    <div class="lanes" id="lanes" role="radiogroup" aria-label="Take you are hearing">
+      <div class="ruler" aria-hidden="true"><span>Take</span><div class="bars"><span>1</span><span>2</span><span>3</span><span>4</span></div><span></span></div>
+    </div>
+
+    <div class="status">
+      <span id="kept" aria-live="polite">Rendering takes…</span>
+      <span class="keys"><kbd>1</kbd>–<kbd>4</kbd> switch &nbsp; <kbd>Space</kbd> play &nbsp; <kbd>K</kbd> keep &nbsp; <kbd>X</kbd> drop</span>
+    </div>
+  </section>
+
+  <p class="note">Design draft. The four takes are synthesized in this page with the Web Audio API as stand-ins for model output; nothing here calls a generation model. Loudness matching levels each take to the same RMS so the louder take does not win the comparison by default.</p>
+</main>
+
+<script>
+(() => {
+  const BPM = 92, BEATS = 4, BARS = 4, SR = 44100;
+  const BEAT = 60 / BPM, BAR = BEAT * BEATS, LOOP = BAR * BARS, STEP = BEAT / 4;
+  const TARGET_RMS = Math.pow(10, -18 / 20);
+
+  const TAKES = [
+    { name: "Take 1", desc: "Rhodes up front, sparse kit", variant: 1 },
+    { name: "Take 2", desc: "Busy hats, walking bass", variant: 2 },
+    { name: "Take 3", desc: "Darker voicing, swung groove", variant: 3 },
+    { name: "Take 4", desc: "Half-time drums, chord stabs", variant: 4 },
+  ];
+
+  const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+  // Dm9, G13, Cmaj9, A7(b13): one chord per bar
+  const CHORDS = [[50, 53, 57, 60, 64], [55, 59, 64, 65, 69], [48, 52, 55, 59, 62], [57, 61, 65, 67, 71]];
+  const ROOTS = [38, 43, 36, 45];
+
+  function noiseBuffer(ctx) {
+    const b = ctx.createBuffer(1, SR, SR), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  }
+
+  function env(ctx, node, t, peak, attack, decay) {
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+    node.connect(g); return g;
+  }
+
+  function render(variant) {
+    const ctx = new OfflineAudioContext(2, Math.ceil(LOOP * SR), SR);
+    const bus = ctx.createGain(); bus.gain.value = 0.8; bus.connect(ctx.destination);
+    const noise = noiseBuffer(ctx);
+    const swing = variant === 3 ? STEP * 0.33 : 0;
+    const at = (bar, step) => bar * BAR + step * STEP + (step % 2 ? swing : 0);
+
+    const kick = t => { const o = ctx.createOscillator(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.14);
+      env(ctx, o, t, 0.9, 0.003, 0.38).connect(bus); o.start(t); o.stop(t + 0.5); };
+    const snare = (t, v = 0.45) => { const s = ctx.createBufferSource(); s.buffer = noise; const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1900; f.Q.value = 0.8;
+      s.connect(f); env(ctx, f, t, v, 0.002, 0.2).connect(bus); s.start(t); s.stop(t + 0.3);
+      const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.value = 185; env(ctx, o, t, v * 0.5, 0.002, 0.09).connect(bus); o.start(t); o.stop(t + 0.15); };
+    const hat = (t, v = 0.12, open = false) => { const s = ctx.createBufferSource(); s.buffer = noise; const f = ctx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = 7500;
+      s.connect(f); env(ctx, f, t, v, 0.001, open ? 0.22 : 0.045).connect(bus); s.start(t); s.stop(t + 0.3); };
+    const bass = (t, n, dur) => { const o = ctx.createOscillator(); o.frequency.value = midi(n); const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 500;
+      o.connect(f); env(ctx, f, t, 0.5, 0.01, dur).connect(bus); o.start(t); o.stop(t + dur + 0.05); };
+    const rhodes = (t, notes, dur, v = 0.09, shift = 0) => { const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = variant === 3 ? 1200 : 2400; f.connect(bus);
+      notes.forEach((n, i) => { [1, 2.0].forEach((mult, k) => { const o = ctx.createOscillator(); o.frequency.value = midi(n + shift) * mult; o.detune.value = (i - 2) * 3;
+        env(ctx, o, t + i * 0.008, k ? v * 0.18 : v, 0.006, dur).connect(f); o.start(t); o.stop(t + dur + 0.1); }); }); };
+
+    for (let bar = 0; bar < BARS; bar++) {
+      const chord = CHORDS[bar], root = ROOTS[bar];
+      if (variant === 4) {
+        kick(at(bar, 0)); kick(at(bar, 10)); snare(at(bar, 8), 0.55);
+        for (let s = 0; s < 16; s += 4) hat(at(bar, s), 0.1);
+        [2, 6, 11, 14].forEach(s => rhodes(at(bar, s), chord, 0.35, 0.1));
+        bass(at(bar, 0), root, BAR * 0.9);
+      } else {
+        kick(at(bar, 0)); kick(at(bar, 7)); if (variant !== 1) kick(at(bar, 10));
+        snare(at(bar, 4)); snare(at(bar, 12));
+        const hatStep = variant === 2 ? 1 : 2;
+        for (let s = 0; s < 16; s += hatStep) hat(at(bar, s), variant === 1 ? 0.07 : (s % 4 ? 0.06 : 0.12), variant === 2 && s === 14);
+        rhodes(at(bar, 0), chord, BAR * 0.95, variant === 1 ? 0.12 : 0.08, variant === 3 ? -12 : 0);
+        if (variant === 2) [0, 4, 8, 12].forEach((s, i) => bass(at(bar, s), root + [0, 7, 12, 10][i], BEAT * 0.9));
+        else bass(at(bar, 0), root, BAR * 0.45), bass(at(bar, 10), root + 7, BEAT * 1.2);
+      }
+    }
+    return ctx.startRendering();
+  }
+
+  function rms(buf) {
+    let sum = 0, n = 0;
+    for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i += 4) { sum += d[i] * d[i]; n++; } }
+    return Math.sqrt(sum / n);
+  }
+
+  // ---------- UI ----------
+  const lanesEl = document.getElementById("lanes");
+  const playBtn = document.getElementById("play"), posEl = document.getElementById("pos"), keptEl = document.getElementById("kept");
+  const blindEl = document.getElementById("blind"), matchEl = document.getElementById("match");
+  const state = TAKES.map((t, i) => ({ ...t, i, buf: null, peaks: null, matchDb: 0, verdict: null, el: null }));
+  let active = 0, queued = null, blindOrder = [0, 1, 2, 3];
+
+  state.forEach(t => {
+    const lane = document.createElement("div");
+    lane.className = "lane";
+    lane.innerHTML = `
+      <button class="pick" role="radio" aria-checked="false" tabindex="-1">
+        <span class="key">${t.i + 1}</span><span class="name"></span><span class="desc"></span>
+      </button>
+      <div class="wavebox"><canvas aria-hidden="true"></canvas><div class="head"></div></div>
+      <div class="verdict">
+        <span class="gain" title="Loudness-match adjustment"></span>
+        <button class="vbtn keep" aria-pressed="false">Keep</button>
+        <button class="vbtn drop" aria-pressed="false">Drop</button>
+      </div>`;
+    t.el = lane;
+    lane.querySelector(".pick").addEventListener("click", () => select(t.i));
+    lane.querySelector(".keep").addEventListener("click", () => setVerdict(t.i, "keep"));
+    lane.querySelector(".drop").addEventListener("click", () => setVerdict(t.i, "drop"));
+    lanesEl.appendChild(lane);
+  });
+
+  function label(t) {
+    if (!blindEl.checked) return { name: t.name, desc: t.desc };
+    return { name: "Take " + "ABCD"[blindOrder.indexOf(t.i)], desc: "Hidden until you turn off blind test" };
+  }
+
+  function paintLabels() {
+    state.forEach(t => {
+      const l = label(t);
+      t.el.querySelector(".name").textContent = l.name;
+      t.el.querySelector(".desc").textContent = l.desc;
+      t.el.querySelector(".pick").setAttribute("aria-label", `${l.name}${blindEl.checked ? "" : ", " + l.desc}`);
+      t.el.style.order = blindEl.checked ? blindOrder.indexOf(t.i) + 1 : t.i + 1;
+      t.el.querySelector(".key").textContent = blindEl.checked ? blindOrder.indexOf(t.i) + 1 : t.i + 1;
+      const g = t.el.querySelector(".gain");
+      g.textContent = matchEl.checked && t.buf ? (t.matchDb >= 0 ? "+" : "") + t.matchDb.toFixed(1) + " dB" : "";
+    });
+    paintKept();
+  }
+
+  function paintRows() {
+    state.forEach(t => {
+      t.el.classList.toggle("active", t.i === active);
+      t.el.classList.toggle("queued", t.i === queued);
+      t.el.classList.toggle("discarded", t.verdict === "drop");
+      const pick = t.el.querySelector(".pick");
+      pick.setAttribute("aria-checked", String(t.i === active));
+      pick.tabIndex = t.i === active ? 0 : -1;
+      t.el.querySelector(".keep").setAttribute("aria-pressed", String(t.verdict === "keep"));
+      t.el.querySelector(".drop").setAttribute("aria-pressed", String(t.verdict === "drop"));
+    });
+    paintKept();
+    drawAll();
+  }
+
+  function paintKept() {
+    if (!state.every(t => t.buf)) return;
+    const kept = state.filter(t => t.verdict === "keep").map(t => label(t).name);
+    const dropped = state.filter(t => t.verdict === "drop").length;
+    keptEl.innerHTML = kept.length
+      ? `<strong>Kept:</strong> ${kept.join(", ")}${dropped ? ` &nbsp; Dropped: ${dropped}` : ""}`
+      : `No takes kept yet. Press <kbd>K</kbd> on the take you are hearing to keep it.`;
+  }
+
+  function setVerdict(i, v) {
+    state[i].verdict = state[i].verdict === v ? null : v;
+    paintRows();
+  }
+
+  // ---------- waveforms ----------
+  function computePeaks(buf, cols = 600) {
+    const d = buf.getChannelData(0), per = Math.floor(d.length / cols), out = new Float32Array(cols);
+    for (let c = 0; c < cols; c++) { let m = 0; for (let i = c * per, e = i + per; i < e; i += 2) { const v = Math.abs(d[i]); if (v > m) m = v; } out[c] = m; }
+    return out;
+  }
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  function draw(t) {
+    const cv = t.el.querySelector("canvas"), box = cv.parentElement;
+    const w = box.clientWidth, h = box.clientHeight, dpr = window.devicePixelRatio || 1;
+    if (!w) return;
+    cv.width = w * dpr; cv.height = h * dpr;
+    const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    g.fillStyle = css("--line");
+    for (let b = 1; b < BARS; b++) g.fillRect(Math.round(w * b / BARS), 0, 1, h);
+    if (!t.peaks) return;
+    // Drawn on a dB scale (bottom = -42 dBFS) so the Rhodes and bass show, not only the kick hits.
+    const gain = matchEl.checked ? Math.pow(10, t.matchDb / 20) : 1, FLOOR = -42;
+    g.fillStyle = t.verdict === "drop" ? css("--discard") : (t.i === active ? css("--wave-active") : css("--wave"));
+    const cols = t.peaks.length, bw = w / cols;
+    for (let c = 0; c < cols; c++) {
+      const db = 20 * Math.log10(Math.max(1e-6, t.peaks[c] * gain));
+      const a = Math.max(0, Math.min(1, (db - FLOOR) / -FLOOR)) * (h / 2 - 2);
+      g.fillRect(c * bw, h / 2 - a, Math.max(1, bw - 0.4), a * 2 || 1);
+    }
+  }
+  const drawAll = () => state.forEach(draw);
+  new ResizeObserver(drawAll).observe(lanesEl);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawAll);
+  new MutationObserver(drawAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  // ---------- playback ----------
+  let ctx = null, gains = [], sources = [], t0 = 0, playing = false, raf = 0;
+
+  function takeGain(i) { return matchEl.checked ? Math.pow(10, state[i].matchDb / 20) : 1; }
+
+  function start() {
+    ctx = ctx || new AudioContext();
+    ctx.resume();
+    const master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+    t0 = ctx.currentTime + 0.05;
+    gains = state.map((t, i) => { const g = ctx.createGain(); g.gain.value = i === active ? takeGain(i) : 0; g.connect(master); return g; });
+    sources = state.map((t, i) => { const s = ctx.createBufferSource(); s.buffer = t.buf; s.loop = true; s.connect(gains[i]); s.start(t0); return s; });
+    playing = true; playBtn.textContent = "Stop"; playBtn.setAttribute("aria-pressed", "true");
+    tick();
+  }
+
+  function stop() {
+    sources.forEach(s => { try { s.stop(); } catch (e) {} });
+    sources = []; gains = []; playing = false; queued = null;
+    playBtn.textContent = "Play"; playBtn.setAttribute("aria-pressed", "false");
+    cancelAnimationFrame(raf); setHeads(0); posEl.textContent = "1.1"; paintRows();
+  }
+
+  // When the switch lands. Instant uses a 10 ms crossfade so the cut never clicks;
+  // beat and bar wait for the next grid line so a groove is never broken mid-phrase.
+  function switchTime(mode) {
+    const now = ctx.currentTime, elapsed = Math.max(0, now - t0);
+    if (mode === "now") return now + 0.005;
+    const unit = mode === "beat" ? BEAT : BAR;
+    return t0 + Math.ceil((elapsed + 0.01) / unit) * unit;
+  }
+
+  function select(i) {
+    if (i === active && queued === null) return;
+    if (!playing) { active = i; queued = null; paintRows(); focusActive(); return; }
+    const mode = document.querySelector('input[name="sw"]:checked').value;
+    const at = switchTime(mode), from = active, fade = 0.01;
+    gains.forEach((g, k) => { g.gain.cancelScheduledValues(at - fade); });
+    gains[from].gain.setValueAtTime(takeGain(from), at - fade);
+    gains[from].gain.linearRampToValueAtTime(0, at);
+    gains[i].gain.setValueAtTime(0, at - fade);
+    gains[i].gain.linearRampToValueAtTime(takeGain(i), at);
+    if (mode === "now") { active = i; queued = null; }
+    else { queued = i; const land = () => { if (queued === i) { active = i; queued = null; paintRows(); } };
+      setTimeout(land, Math.max(0, (at - ctx.currentTime) * 1000)); }
+    paintRows(); focusActive();
+  }
+  const focusActive = () => { if (lanesEl.contains(document.activeElement)) state[queued ?? active].el.querySelector(".pick").focus(); };
+
+  function setHeads(frac) {
+    state.forEach(t => { const box = t.el.querySelector(".wavebox"); t.el.querySelector(".head").style.transform = `translateX(${frac * (box.clientWidth - 2)}px)`; });
+  }
+  function tick() {
+    const el = Math.max(0, ctx.currentTime - t0) % LOOP, frac = el / LOOP;
+    setHeads(frac);
+    posEl.textContent = `${Math.floor(el / BAR) + 1}.${Math.floor((el % BAR) / BEAT) + 1}`;
+    raf = requestAnimationFrame(tick);
+  }
+
+  playBtn.addEventListener("click", () => (playing ? stop() : start()));
+  matchEl.addEventListener("change", () => { if (playing) gains.forEach((g, i) => g.gain.setTargetAtTime(i === active ? takeGain(i) : 0, ctx.currentTime, 0.01)); paintLabels(); drawAll(); });
+  blindEl.addEventListener("change", () => {
+    if (blindEl.checked) { blindOrder = [0, 1, 2, 3].sort(() => Math.random() - 0.5); }
+    paintLabels(); paintRows();
+  });
+
+  document.addEventListener("keydown", e => {
+    if (e.metaKey || e.ctrlKey || e.altKey || !state.every(t => t.buf)) return;
+    const tag = e.target.tagName;
+    if (e.key >= "1" && e.key <= "4") { const n = +e.key - 1; select(blindEl.checked ? blindOrder[n] : n); e.preventDefault(); }
+    else if (e.key === " " && tag !== "BUTTON" && e.target.type !== "checkbox") { playing ? stop() : start(); e.preventDefault(); }
+    else if (e.key.toLowerCase() === "k") setVerdict(queued ?? active, "keep");
+    else if (e.key.toLowerCase() === "x") setVerdict(queued ?? active, "drop");
+    else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && lanesEl.contains(e.target)) {
+      const order = blindEl.checked ? blindOrder : [0, 1, 2, 3], cur = order.indexOf(queued ?? active);
+      select(order[(cur + (e.key === "ArrowDown" ? 1 : 3)) % 4]); e.preventDefault();
+    }
+  });
+
+  // ---------- boot ----------
+  playBtn.disabled = true;
+  paintLabels(); paintRows();
+  Promise.all(state.map(t => render(t.variant))).then(bufs => {
+    bufs.forEach((b, i) => { const t = state[i]; t.buf = b; t.peaks = computePeaks(b); t.matchDb = 20 * Math.log10(TARGET_RMS / rms(b)); });
+    playBtn.disabled = false;
+    paintLabels(); paintRows();
+  }).catch(err => { keptEl.textContent = "This browser could not render the takes (" + err.message + "). Try a current Chrome, Safari or Firefox."; });
+})();
+</script>
+</body>
+</html>
