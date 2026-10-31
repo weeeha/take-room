@@ -1,5 +1,13 @@
 # Take Room
 
+**Problem.** A text-to-music model gives several takes of one prompt, and picking the best means playing each from the top and trying to remember how the last one felt.
+
+**Idea.** Play all four takes in lockstep on one clock so switching keeps the groove going, level them to the same loudness, and offer a blind mode that hides the names.
+
+**Built.** One static HTML file with no build step, using Web Audio, live at https://take-room.vercel.app. It is an exploration and design draft: the four takes are synthesized in the browser as stand-ins, and nothing calls a generation model. 1 commit on 1 day, Oct 27, 2026.
+
+**Decision.** Switches are scheduled as gain ramps on the audio clock instead of a timer, so beat and bar quantization land sample-accurately.
+
 Compare four AI-generated takes of one music prompt without losing your place in the bar.
 
 Status: exploration, design draft. Live: https://take-room.vercel.app
