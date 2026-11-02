@@ -8,6 +8,8 @@
 
 **Decision.** Switches are scheduled as gain ramps on the audio clock instead of a timer, so beat and bar quantization land sample-accurately.
 
+![Take Room: four takes of one prompt in lockstep, with switch timing, blind test and loudness matching](docs/screenshots/take-room.png)
+
 Compare four AI-generated takes of one music prompt without losing your place in the bar.
 
 Status: exploration, design draft. Live: https://take-room.vercel.app
